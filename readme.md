@@ -77,3 +77,8 @@ In order to contribute to Intel RealSense SDK, please follow our [contribution g
 ## License
 This project is licensed under the [Apache License, Version 2.0](LICENSE).
 Copyright 2018 Intel Corporation
+
+## Dependencies
+For cheetah vision poincloud estimator
+- opencv
+- lcm
