@@ -5,8 +5,7 @@
 This sample demonstrates how to generate and visualize textured 3D pointcloud.
 
 ## Expected Output
-The application should open a window with a pointcloud. Using your mouse, you should be able to interact with the pointcloud  rotating and zooming using the mouse.
-
+The application should open a window with a pointcloud. Using your mouse, you should be able to interact with the pointcloud, rotating, zooming, and panning.
 ![expected output](https://raw.githubusercontent.com/wiki/IntelRealSense/librealsense/res/point-cloud-expected.png)
 
 ## Code Overview

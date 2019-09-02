@@ -1,0 +1,323 @@
+// License: Apache 2.0. See LICENSE file in root directory.
+// Copyright(c) 2015-2017 Intel Corporation. All Rights Reserved.
+
+#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
+#include "example.hpp"          // Include short list of convenience functions for rendering
+
+#include <algorithm>            // std::min, std::max
+
+#include <lcm/lcm-cpp.hpp>
+#include "../../../lcm-types/cpp/rs_pointcloud_t.hpp" // ask if this makes sense
+#include "../../../lcm-types/cpp/lidar_pose_t.hpp"
+#include "../../../lcm-types/cpp/heightmap_t.hpp"
+#include <iostream>
+#include <thread> 
+#include <type_traits>
+#include <cmath>
+
+// My code
+
+struct worldmap
+{
+    double map[1000][1000];
+};
+
+struct gl_worldmap
+{
+    GLfloat points[1000000][3];
+};
+
+struct rotMat_t
+{
+    double R[3][3];
+};
+
+int WORLD_SIZE = 10;
+int CELLS_PER_M = 100;
+worldmap world_heightmap;
+lidar_pose_t lidar_pose;
+lcm::LCM vision_lcm;
+gl_worldmap glheightmap;
+
+
+// Handles all the OpenGL calls needed to display the point cloud
+void draw_heightmap(float width, float height, glfw_state& app_state, gl_worldmap& glheightmap)
+{
+
+    // OpenGL commands that prep screen for the pointcloud
+    glLoadIdentity();
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+    glClearColor(153.f / 255, 153.f / 255, 153.f / 255, 1);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    gluPerspective(60, width / height, 0.01f, 10.0f);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    gluLookAt(0, 0, 0, 0, 0, 1, 0, -1, 0);
+
+    glTranslatef(0, 0, +0.5f + app_state.offset_y*0.05f);
+    glRotated(app_state.pitch, 1, 0, 0);
+    glRotated(app_state.yaw, 0, 1, 0);
+    glTranslatef(0, 0, -0.5f);
+
+    glPointSize(width / 640);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, app_state.tex.get_gl_handle());
+    float tex_border_color[] = { 0.8f, 0.8f, 0.8f, 0.8f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, tex_border_color);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F); // GL_CLAMP_TO_EDGE
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F); // GL_CLAMP_TO_EDGE
+    glBegin(GL_POINTS);
+
+
+
+    for (int i = 0; i < CELLS_PER_M*WORLD_SIZE*CELLS_PER_M*WORLD_SIZE; i++)
+    {
+	glVertex3fv(&glheightmap.points[i][0]);
+    }
+
+    // OpenGL cleanup
+    glEnd();
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glPopAttrib();
+}
+
+
+rotMat_t poseToRotationMatrix(lidar_pose_t pose){
+	double e0 = pose.lidar_quaternion[0];
+	double e1 = pose.lidar_quaternion[1];
+	double e2 = pose.lidar_quaternion[2];
+	double e3 = pose.lidar_quaternion[3];
+	rotMat_t rotMat;
+
+	rotMat.R[0][0] = 1-2*(e2*e2 + e3*e3);
+	rotMat.R[1][0] = 2*(e1*e2 - e0*e3);
+	rotMat.R[2][0] = 2*(e1*e3 + e0*e2);
+
+	rotMat.R[0][1] = 2*(e1*e2 + e0*e3);
+	rotMat.R[1][1] = 1-2*(e1*e1 + e3*e3);
+	rotMat.R[2][1] = 2*(e2*e3 - e0*e1);
+
+	rotMat.R[0][2] = 2*(e1*e3 - e0*e2);
+	rotMat.R[1][2] = 2*(e2*e3 + e0*e1);
+	rotMat.R[2][2] = 1-2*(e1*e1 + e3*e3);
+
+	return rotMat;
+}
+
+rs_pointcloud_t coordinateTransformation(lidar_pose_t pose, rs_pointcloud_t cameraFrameCloud)
+{
+	rotMat_t rotationMatrix = poseToRotationMatrix(pose);
+	int r1 = 3, c1=3, r2 = 3, c2 = 921;
+	rs_pointcloud_t worldFrameCloud;
+	for (int i=0; i<r1; i++){
+		for (int j=0; j<c2; j++){
+			worldFrameCloud.pointlist[i][j] = pose.p_lidar[i];
+			for(int k=0; k<c1; k++){
+				worldFrameCloud.pointlist[i][j] += rotationMatrix.R[i][k]*cameraFrameCloud.pointlist[k][j];
+			}
+		}
+	}
+	return worldFrameCloud;
+}
+
+class PoseHandler
+{
+    public:
+        ~PoseHandler() {}
+	
+	void handlePose(const lcm::ReceiveBuffer* rbuf, 
+			const std::string& chan, 
+			const lidar_pose_t* msg)
+	{
+		lidar_pose = *msg;
+		//std::cout<<"receive lidar"<<std::endl;
+	}
+};
+
+
+
+void handleLCM() {
+  
+  while (true)
+  { 
+	
+	vision_lcm.handle();
+  };
+
+}
+// My code - End
+
+// Helper functions
+void register_glfw_callbacks(window& app, glfw_state& app_state);
+
+int main(int argc, char * argv[]) try
+{
+
+    for (int i=0; i<1000; i++)
+	{
+		for (int j=0; j<1000; j++)
+		{
+			int ind = CELLS_PER_M*i + j;
+			glheightmap.points[ind][0] = i*0.01;
+			glheightmap.points[ind][1] = j*0.01; 
+		}
+	}
+
+    // Create a simple OpenGL window for rendering:
+    window app(1280, 720, "RealSense Pointcloud Example");
+    // Construct an object to manage view state
+    glfw_state app_state;
+    // register callbacks to allow manipulation of the pointcloud
+    register_glfw_callbacks(app, app_state);
+
+
+    // Declare pointcloud object, for calculating pointclouds and texture mappings
+    rs2::pointcloud pc;
+    // We want the points object to be persistent so we can display the last cloud when a frame drops
+    rs2::points points;
+    // Declare RealSense pipeline, encapsulating the actual device and sensors
+    rs2::pipeline pipe;
+    // Start streaming with default recommended configuration
+    pipe.start();
+
+    // My code 
+    
+    
+    PoseHandler handlerObject; 
+    vision_lcm.subscribe("LIDAR_POSE", &PoseHandler::handlePose, &handlerObject);
+    std::thread lidar_sub_thread(&handleLCM);
+    
+    // My code - End
+
+
+    while (app)
+    {
+        // Wait for the next set of frames from the camera
+        auto frames = pipe.wait_for_frames();
+
+
+
+		auto color = frames.get_color_frame();
+        // For cameras that don't have RGB sensor, we'll map the pointcloud to infrared instead of color
+        if (!color)
+            color = frames.get_infrared_frame();
+        // Tell pointcloud object to map to this color frame
+        pc.map_to(color);
+        auto depth = frames.get_depth_frame();
+
+
+
+        // Generate the pointcloud and texture mappings
+        points = pc.calculate(depth);
+
+		// My Code - publish pointcloud
+		rs_pointcloud_t cf_pointcloud; // 921600
+		rs_pointcloud_t wf_pointcloud; 
+		heightmap_t local_heightmap;
+		//std::cout<<points.size()<< std::endl;
+
+		int num_points = points.size();
+
+		auto vertices = points.get_vertices(); 
+
+		// Move raw image into camera frame point cloud struct
+		for (int i = 0; i < num_points/1000; i++)
+		{
+    		if (vertices[i*1000].z)
+    		{
+				cf_pointcloud.pointlist[i][0] = vertices[i*1000].z;
+				cf_pointcloud.pointlist[i][1] = -vertices[i*1000].x;
+				cf_pointcloud.pointlist[i][2] = vertices[i*1000].y;
+    		}
+			else
+			{
+				cf_pointcloud.pointlist[i][0] = 10000; // move null depth returns way off map so they get ignored
+				cf_pointcloud.pointlist[i][1] = 10000;
+				cf_pointcloud.pointlist[i][2] = 10000;
+			}
+		}
+
+
+		// Publish point cloud in camera and world frames
+		vision_lcm.publish("cf_pointcloud", &cf_pointcloud);
+		
+		std::cout<<lidar_pose.p_lidar[0]<<std::endl;
+		//std::cout<<poseToRotationMatrix(lidar_pose).R[0][0]<<std::endl;
+
+		wf_pointcloud = coordinateTransformation(lidar_pose, cf_pointcloud);
+		vision_lcm.publish("wf_pointcloud", &wf_pointcloud);
+
+
+		// Move world frame point cloud into world heightmap
+		for (int i = 0; i < num_points/1000; i++)
+		{
+			int point_x_ind = wf_pointcloud.pointlist[i][0]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1;
+			int point_y_ind = wf_pointcloud.pointlist[i][1]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1;
+			if (point_x_ind >= 0 && point_x_ind < WORLD_SIZE*CELLS_PER_M && point_y_ind >= 0 && point_y_ind < WORLD_SIZE*CELLS_PER_M)
+			{			
+				if (world_heightmap.map[point_x_ind][point_y_ind] < wf_pointcloud.pointlist[i][2])
+				{
+					world_heightmap.map[point_x_ind][point_y_ind] = wf_pointcloud.pointlist[i][2];
+				}
+			}
+		}
+
+		//Copy out local heightmap
+		// 		calculate index of center of local map in world map
+		int pose_x_ind = lidar_pose.p_lidar[0]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1; 
+		int pose_y_ind = lidar_pose.p_lidar[1]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1;
+
+		for (int i = 0; i < CELLS_PER_M; i++)
+		{
+			for (int j = 0; j < CELLS_PER_M; j++)
+			{		
+				int world_map_x_ind = pose_x_ind+i-CELLS_PER_M/2;
+				int world_map_y_ind = pose_y_ind+j-CELLS_PER_M/2;
+				if (world_map_x_ind >= 0 && world_map_x_ind < WORLD_SIZE*CELLS_PER_M && 
+					world_map_y_ind >= 0 && world_map_y_ind < WORLD_SIZE*CELLS_PER_M)
+				{
+					local_heightmap.map[i][j] = world_heightmap.map[world_map_x_ind][world_map_y_ind];
+				}			
+			}
+		}
+
+		vision_lcm.publish("local_heightmap", &local_heightmap);
+		
+		for (int i=0; i<1000; i++)
+		{
+			for (int j=0; j<1000; j++)
+			{
+				int ind = CELLS_PER_M*i + j;
+				glheightmap.points[ind][2] = world_heightmap.map[i][j]*10; 
+			}
+		}
+		// My Code - End
+
+		// Upload the color frame to OpenGL
+		app_state.tex.upload(color);
+
+		// Draw the pointcloud
+		draw_heightmap(app.width(), app.height(), app_state, glheightmap);
+
+    }
+
+    return EXIT_SUCCESS;
+}
+catch (const rs2::error & e)
+{
+    std::cerr << "RealSense error calling " << e.get_failed_function() << "(" << e.get_failed_args() << "):\n    " << e.what() << std::endl;
+    return EXIT_FAILURE;
+}
+catch (const std::exception & e)
+{
+    std::cerr << e.what() << std::endl;
+    return EXIT_FAILURE;
+}
