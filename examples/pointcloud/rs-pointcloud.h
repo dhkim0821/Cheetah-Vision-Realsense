@@ -92,25 +92,7 @@ xyzq_pose_t stateEstimatorToXYZQPose(state_estimator_lcmt state_estimate){
   return xyzq_pose;
 }
 
-rs_pointcloud_t coordinateTransformation(xyzq_pose_t pose, rs_pointcloud_t inputCloud)
-{
-  rotMat_t rotationMatrix = poseToRotationMatrix(pose);
-
-  int r1 = 3, c1=3, r2 = 3, c2 = 5000;
-  rs_pointcloud_t outputCloud = {0};
-  for (int i=0; i<r1; i++){
-    for (int j=0; j<c2; j++){
-      outputCloud.pointlist[i][j] = pose.xyz[i];
-      for(int k=0; k<c1; k++){
-        outputCloud.pointlist[i][j] += rotationMatrix.R[i][k]*inputCloud.pointlist[k][j];
-      }
-    }
-  }
-  return outputCloud;
-}
-
-
-void coordinateTransformation_DH( const xyzq_pose_t & pose, 
+void coordinateTransformation( const xyzq_pose_t & pose, 
     const rs_pointcloud_t & inputCloud,
     rs_pointcloud_t & outputCloud)
 {

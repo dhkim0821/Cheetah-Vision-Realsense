@@ -33,11 +33,11 @@ int main(int argc, char * argv[]) try
   rs2::points points;
   // Declare RealSense pipeline, encapsulating the actual device and sensors
   rs2::pipeline pipe;
-  //rs2::config cfg;
-  //cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
+  rs2::config cfg;
+  cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
   // Start streaming with default recommended configuration
-  //pipe.start(cfg);
-  pipe.start();
+  pipe.start(cfg);
+  //pipe.start();
 
   //LidarPoseHandler lidarHandlerObject; 
   StateEstimatorPoseHandler stateEstimatorHandlerObject;
@@ -79,26 +79,26 @@ void _ProcessPointCloudData(const rs2::points & points){
   static worldmap world_heightmap;
   static int iter(0);
 
-  if(iter == 0){
+  //printf("1\n");
+  if(iter < 2){
     for(int i(0); i<1000;++i){
       for(int j(0); j<1000; ++j){
         world_heightmap.map[i][j] = 0.;
       }
     }
   }
-  ++iter;
 
   static traversability_map_t traversability;
-  static int iter2(0);
-  if(iter2 == 0){
+  if(iter < 2){
     for(int i(0); i<100;++i){
       for(int j(0); j<100; ++j){
         traversability.map[i][j] = 0;
       }
-    }		
+    }
   }
-  ++iter2;
+  ++iter;
 
+  //printf("2\n");
   int erosion_size = 2;
   static cv::Mat erosion_element = cv::getStructuringElement(
       cv::MORPH_ELLIPSE, cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ), 
@@ -116,9 +116,8 @@ void _ProcessPointCloudData(const rs2::points & points){
   static rs_pointcloud_t cf_pointcloud; // 921600
   static rs_pointcloud_t wf_pointcloud; 
   static rs_pointcloud_t rf_pointcloud;
+  //printf("3\n");
 
-
-  //std::cout<<points.size()<< std::endl;
 
   int num_points = points.size();
   auto vertices = points.get_vertices(); 
@@ -138,10 +137,12 @@ void _ProcessPointCloudData(const rs2::points & points){
     }
   }
 
-  int num_skip = num_valid_points/5000;
-  //int num_skip = 50;
+  //printf("4\n");
+  int num_skip = floor(num_valid_points/5000);
 
-  for (int i = 0; i < num_valid_points/num_skip; i++)
+  if(num_skip == 0){ num_skip = 1; }
+  //printf("num_skip:%d/%d\n", num_skip, num_valid_points);
+  for (int i = 0; i < floor(num_valid_points/num_skip); i++)
   {
     cf_pointcloud.pointlist[k][0] = vertices[valid_indices[i*num_skip]].z;
     cf_pointcloud.pointlist[k][1] = -vertices[valid_indices[i*num_skip]].x;
@@ -152,14 +153,14 @@ void _ProcessPointCloudData(const rs2::points & points){
     }
   }
 
+  //printf("5\n");
   //printf("%dth iter) num of cf point: %d\n", iter, k);
   //printf("%dth iter) num of valid point: %d\n", iter, num_valid_points);
   //printf("%dth iter) num_skip: %d\n", iter, num_skip);
 
-  coordinateTransformation_DH(COM_to_camera_TF, cf_pointcloud, rf_pointcloud);
+  coordinateTransformation(COM_to_camera_TF, cf_pointcloud, rf_pointcloud);
   xyzq_pose_t state_estimator_xyzq = stateEstimatorToXYZQPose(state_estimator_pose);
-  coordinateTransformation_DH(state_estimator_xyzq, rf_pointcloud, wf_pointcloud);
-
+  coordinateTransformation(state_estimator_xyzq, rf_pointcloud, wf_pointcloud);
 
   wfPCtoHeightmap(&wf_pointcloud, &world_heightmap, 5000); //right
 
@@ -172,13 +173,48 @@ void _ProcessPointCloudData(const rs2::points & points){
   cv::Mat	grad_x, grad_y;
   cv::Sobel(cv_local_heightmap, grad_x, CV_64F, 1,0,3,1,0,cv::BORDER_DEFAULT);
   cv::Sobel(cv_local_heightmap, grad_y, CV_64F, 0,1,3,1,0,cv::BORDER_DEFAULT);
-  cv::Mat grad_max = max(grad_x, grad_y);
+  cv::Mat abs_grad_x = abs(grad_x);
+  cv::Mat abs_grad_y = abs(grad_y);
+  cv::Mat grad_max = max(abs_grad_x, abs_grad_y);
+  //cv::Mat grad_max = max(grad_x, grad_y);
 
+  //printf("6\n");
   cv::Mat no_step_mat, jump_mat;
-  cv::threshold(grad_max, no_step_mat, 0.015, 1, 0);
-  cv::threshold(grad_max, jump_mat, 0.2, 1, 0);
-  cv::Mat traversability_mat(100, 100, CV_32S, traversability.map);
+  //cv::threshold(grad_max, no_step_mat, 0.015, 1, 0);
+  //cv::threshold(grad_max, jump_mat, 0.2, 1, 0);
+  cv::threshold(grad_max, no_step_mat, 0.07, 1, 0);
+  cv::threshold(grad_max, jump_mat, 0.5, 1, 0);
+  //cv::Mat traversability_mat(100, 100, CV_32S, traversability.map);
+  cv::Mat traversability_mat(100, 100, CV_32S);
   traversability_mat = no_step_mat + jump_mat;
+
+  for(int i(0); i<100; ++i){
+    for(int j(0); j<100; ++j){
+      traversability.map[i][j] = traversability_mat.at<double>(i,j);
+    }
+  }
+
+  //printf("7\n");
+  //if(iter%100 == 0){
+    //for(int i(0); i<100; ++i){
+      //for(int j(0); j<100; ++j){
+        //printf("%f, ", traversability_mat.at<double>(i,j));
+      //}
+      //printf("\n");
+    //}
+      //printf("\n");
+  //}
+
+  //if(iter%100 == 0){
+    //for(int i(0); i<100; ++i){
+      //for(int j(0); j<100; ++j){
+        //printf("%d, ", traversability.map[i][j]);
+      //}
+      //printf("\n");
+    //}
+      //printf("\n");
+  //}
+
 
   /*double jumpmin, jumpmax;
     cv::minMaxIdx(jump_mat, &jumpmin, &jumpmax);
@@ -206,6 +242,6 @@ void _ProcessPointCloudData(const rs2::points & points){
   (wf_pointcloud).position[2] = (state_estimator_xyzq).xyz[2];
 
 
+  //printf("8\n");
   vision_lcm.publish("cf_pointcloud", &wf_pointcloud);
-  //vision_lcm.publish("cf_pointcloud", &cf_pointcloud);
 }
