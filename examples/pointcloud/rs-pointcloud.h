@@ -92,6 +92,21 @@ xyzq_pose_t stateEstimatorToXYZQPose(state_estimator_lcmt state_estimate){
   return xyzq_pose;
 }
 
+xyzq_pose_t rsPoseToXYZQPose(const rs2::pose_frame & pose_frame){
+  xyzq_pose_t xyzq_pose;
+  auto pose_data = pose_frame.get_pose_data();
+  xyzq_pose.xyz[0] = (double) pose_data.translation.x;  
+  xyzq_pose.xyz[1] = (double) pose_data.translation.y;  
+  xyzq_pose.xyz[2] = (double) pose_data.translation.z;  
+
+  xyzq_pose.wxyz_quaternion[0] = (double) pose_data.rotation.w; 
+  xyzq_pose.wxyz_quaternion[1] = (double) pose_data.rotation.x;
+  xyzq_pose.wxyz_quaternion[2] = (double) pose_data.rotation.y;
+  xyzq_pose.wxyz_quaternion[3] = (double) pose_data.rotation.z;
+
+  return xyzq_pose;
+}
+
 void coordinateTransformation( const xyzq_pose_t & pose, 
     const rs_pointcloud_t & inputCloud,
     rs_pointcloud_t & outputCloud)

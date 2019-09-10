@@ -22,7 +22,7 @@
 
 
 
-void _ProcessPointCloudData(const rs2::points & points);
+void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & pose_frame);
 
 int main(int argc, char * argv[]) try
 {
@@ -31,13 +31,21 @@ int main(int argc, char * argv[]) try
   rs2::pointcloud pc;
   // We want the points object to be persistent so we can display the last cloud when a frame drops
   rs2::points points;
+  rs2_pose pose;
   // Declare RealSense pipeline, encapsulating the actual device and sensors
-  rs2::pipeline pipe;
-  rs2::config cfg;
-  cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
+  rs2::pipeline D435pipe;
+  rs2::config D435cfg;
+  D435cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
   // Start streaming with default recommended configuration
-  pipe.start(cfg);
+  D435pipe.start(D435cfg);
   //pipe.start();
+
+  rs2::pipeline T265pipe;
+  rs2::config T265cfg;
+  // Add pose stream
+  T265cfg.enable_stream(RS2_STREAM_POSE, RS2_FORMAT_6DOF);
+  // Start pipeline with chosen configuration
+  T265pipe.start(T265cfg);
 
   //LidarPoseHandler lidarHandlerObject; 
   StateEstimatorPoseHandler stateEstimatorHandlerObject;
@@ -50,14 +58,21 @@ int main(int argc, char * argv[]) try
   while (true)
   {
     // Wait for the next set of frames from the camera
-    auto frames = pipe.wait_for_frames();
-    auto depth = frames.get_depth_frame();
+    auto D435frames = D435pipe.wait_for_frames();
+    auto depth = D435frames.get_depth_frame();
 
     // Generate the pointcloud and texture mappings
     points = pc.calculate(depth);
 
+    // Wait for the next set of frames from the camera
+    auto T265frames = T265pipe.wait_for_frames();
+    // Get a frame from the pose stream
+    auto f = T265frames.first_or_default(RS2_STREAM_POSE);
+    // Cast the frame to pose_frame and get its data
+    auto pose_frame = f.as<rs2::pose_frame>();
+
     // Donghyun
-    _ProcessPointCloudData(points);
+    _ProcessPointCloudData(points, pose_frame);
   }
   return EXIT_SUCCESS;
 }
@@ -74,7 +89,7 @@ catch (const std::exception & e)
 }
 
 
-void _ProcessPointCloudData(const rs2::points & points){
+void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & pose_frame){
   static heightmap_t local_heightmap;
   static worldmap world_heightmap;
   static int iter(0);
@@ -110,12 +125,14 @@ void _ProcessPointCloudData(const rs2::points & points){
 
   //xyzq_pose_t lidar_to_camera_TF = poseFromRPY(0.28, 0.0, -0.124, 0.0, -0.417, 0.0);
   //static xyzq_pose_t COM_to_camera_TF = poseFromRPY(0.28, 0.0, -0.01, 0.0, -0.417, 0.0);
-  static xyzq_pose_t COM_to_camera_TF = poseFromRPY(0.28, 0.0, -0.01, 0., 0.49, 0.0);
+  static xyzq_pose_t COM_to_D435_TF = poseFromRPY(0.28, 0.0, -0.01, 0., 0.49, 0.0);
+  static xyzq_pose_t T265_to_COM_TF = poseFromRPY(0.0, 0.0, 0.07, 0., 1.5707, 0.);
 
 
   static rs_pointcloud_t cf_pointcloud; // 921600
   static rs_pointcloud_t wf_pointcloud; 
   static rs_pointcloud_t rf_pointcloud;
+  static rs_pointcloud_t TRS_pointcloud; // tracking realsense
   //printf("3\n");
 
 
@@ -137,11 +154,9 @@ void _ProcessPointCloudData(const rs2::points & points){
     }
   }
 
-  //printf("4\n");
   int num_skip = floor(num_valid_points/5000);
 
   if(num_skip == 0){ num_skip = 1; }
-  //printf("num_skip:%d/%d\n", num_skip, num_valid_points);
   for (int i = 0; i < floor(num_valid_points/num_skip); i++)
   {
     cf_pointcloud.pointlist[k][0] = vertices[valid_indices[i*num_skip]].z;
@@ -153,14 +168,15 @@ void _ProcessPointCloudData(const rs2::points & points){
     }
   }
 
-  //printf("5\n");
-  //printf("%dth iter) num of cf point: %d\n", iter, k);
-  //printf("%dth iter) num of valid point: %d\n", iter, num_valid_points);
-  //printf("%dth iter) num_skip: %d\n", iter, num_skip);
+  
 
-  coordinateTransformation(COM_to_camera_TF, cf_pointcloud, rf_pointcloud);
-  xyzq_pose_t state_estimator_xyzq = stateEstimatorToXYZQPose(state_estimator_pose);
-  coordinateTransformation(state_estimator_xyzq, rf_pointcloud, wf_pointcloud);
+  coordinateTransformation(COM_to_D435_TF, cf_pointcloud, rf_pointcloud);
+  coordinateTransformation(T265_to_COM_TF, rf_pointcloud, TRS_pointcloud);
+
+  // xyzq_pose_t state_estimator_xyzq = stateEstimatorToXYZQPose(state_estimator_pose);
+  xyzq_pose_t state_estimator_xyzq = rsPoseToXYZQPose(pose_frame);
+
+  coordinateTransformation(state_estimator_xyzq, TRS_pointcloud, wf_pointcloud);
 
   wfPCtoHeightmap(&wf_pointcloud, &world_heightmap, 5000); //right
 
@@ -180,8 +196,6 @@ void _ProcessPointCloudData(const rs2::points & points){
 
   //printf("6\n");
   cv::Mat no_step_mat, jump_mat;
-  //cv::threshold(grad_max, no_step_mat, 0.015, 1, 0);
-  //cv::threshold(grad_max, jump_mat, 0.2, 1, 0);
   cv::threshold(grad_max, no_step_mat, 0.07, 1, 0);
   cv::threshold(grad_max, jump_mat, 0.5, 1, 0);
   //cv::Mat traversability_mat(100, 100, CV_32S, traversability.map);
