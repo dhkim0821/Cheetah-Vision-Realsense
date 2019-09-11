@@ -47,8 +47,10 @@ int main(int argc, char * argv[]) try
   std::thread lidar_sub_thread(&handleLCM);
 
 
+  static int count(0);
   while (true)
   {
+    ++count;
     // Wait for the next set of frames from the camera
     auto frames = pipe.wait_for_frames();
     auto depth = frames.get_depth_frame();
@@ -58,6 +60,9 @@ int main(int argc, char * argv[]) try
 
     // Donghyun
     _ProcessPointCloudData(points);
+    if(count%100 ==1) {
+      printf("%d th iter point cloud data is processed\n", count);
+    }
   }
   return EXIT_SUCCESS;
 }
@@ -190,6 +195,7 @@ void _ProcessPointCloudData(const rs2::points & points){
 
   for(int i(0); i<100; ++i){
     for(int j(0); j<100; ++j){
+      local_heightmap.map[i][j] = cv_local_heightmap.at<double>(i,j);
       traversability.map[i][j] = traversability_mat.at<double>(i,j);
     }
   }
