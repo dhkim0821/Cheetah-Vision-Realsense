@@ -87,5 +87,6 @@ librealsense-log.txt
 *.json
 *.ini
 *.cxx
+*.swp
 
 .vscode/*
