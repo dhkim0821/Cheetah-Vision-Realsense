@@ -1,9 +1,12 @@
 // My code
 #include <lcm/lcm-cpp.hpp>
 
+double square(double a) {
+  return a * a;
+}
 
-struct worldmap
-{
+
+struct worldmap {
   double map[1000][1000];
 };
 
@@ -17,6 +20,47 @@ struct xyzq_pose_t{
   double wxyz_quaternion[4];
 };
 
+class SE3{
+  public:
+    SE3(){}
+    ~SE3(){}
+
+  double xyz[3];
+  double R[3][3];
+
+  public:
+  void print(const std::string & name) const {
+    printf("%s:\n", name.c_str());
+    printf("%6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n\n",
+        R[0][0], R[0][1], R[0][2], xyz[0],
+        R[1][0], R[1][1], R[1][2], xyz[1],
+        R[2][0], R[2][1], R[2][2], xyz[2]);
+  }
+  void pointcloudTransformation(const rs_pointcloud_t & inputCloud, rs_pointcloud_t & outputCloud){
+    int r1(3), c1(3), num_pts(5000);
+
+    for (int pt_idx(0); pt_idx<num_pts; ++pt_idx){
+      for (int i=0; i<r1; i++){
+        outputCloud.pointlist[pt_idx][i] = xyz[i];
+        for(int k=0; k<c1; k++){
+          outputCloud.pointlist[pt_idx][i] += R[i][k]*inputCloud.pointlist[pt_idx][k];
+        }
+      }
+    }
+  }
+  void getRPY(double* rpy){ // ZYX
+    rpy[1] = std::asin(-R[2][0]);
+    if(fabs(cos(rpy[1]) ) > 0.000001){
+      rpy[0] = std::asin(R[2][1]/cos(rpy[1]));
+      rpy[2] = std::atan2(R[1][0], R[0][0]);
+    }else{
+      //undefined
+      rpy[0] = 0.;
+      rpy[2] = 0.;
+    }
+  }
+};
+
 int WORLD_SIZE = 10;
 
 float LOCAL_MAP_SIZE = 1.5; // in meters
@@ -25,6 +69,101 @@ xyzq_pose_t lidar_pose;
 state_estimator_lcmt state_estimator_pose;
 lcm::LCM vision_lcm("udpm://239.255.76.67:7667?ttl=255");
 
+void EulerToSE3(double x, double y, double z, double r, double p, double yaw, SE3 & pose) // yaw (Z), pitch (Y), roll (X)
+{
+  pose.xyz[0] = x;
+  pose.xyz[1] = y;
+  pose.xyz[2] = z;
+
+  // ZYX implicit
+  pose.R[0][0] = cos(yaw)*cos(p);  
+  pose.R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
+  pose.R[0][2] = cos(yaw)*sin(p)*cos(r) + sin(yaw)*sin(r); 
+
+  pose.R[1][0] = sin(yaw)*cos(p);  
+  pose.R[1][1] = sin(yaw)*sin(p)*sin(r) + cos(yaw)*cos(r); 
+  pose.R[1][2] = sin(yaw)*sin(p)*cos(r) - cos(yaw)*sin(r); 
+
+  pose.R[2][0] = -sin(p);
+  pose.R[2][1] = cos(p)*sin(r); 
+  pose.R[2][2] = cos(p)*cos(r);
+}
+
+void SE3Multi(const SE3 & a, const SE3 & b, SE3 & out){
+  double p[3];
+  for(int i(0); i<3; ++i){
+    p[i] = 0;
+    for(int k(0); k<3; ++k){
+      out.R[i][k] =0;
+      p[i] += a.R[i][k] * b.xyz[k];
+      for(int j(0); j<3; ++j){
+        out.R[i][k] += (a.R[i][j]*b.R[j][k]);
+      }
+    }
+    out.xyz[i] = a.xyz[i] + p[i];
+  }
+}
+
+void rsPoseToSE3(const rs2::pose_frame & pose_frame, SE3 & pose){
+  auto pose_data = pose_frame.get_pose_data();
+  //pose.xyz[0] = -(double) pose_data.translation.y;  
+  //pose.xyz[1] = -(double) pose_data.translation.x;  
+  //pose.xyz[2] = -(double) pose_data.translation.z;  
+
+  pose.xyz[0] = (double) pose_data.translation.x;  
+  pose.xyz[1] = (double) pose_data.translation.y;  
+  pose.xyz[2] = (double) pose_data.translation.z;  
+
+
+  double e0 = (double) pose_data.rotation.w; 
+  double e1 = (double) pose_data.rotation.x;
+  double e2 = (double) pose_data.rotation.y;
+  double e3 = (double) pose_data.rotation.z;
+  
+  //double e0 = (double) pose_data.rotation.w; 
+  //double e1 = -(double) pose_data.rotation.y;
+  //double e2 = -(double) pose_data.rotation.x;
+  //double e3 = -(double) pose_data.rotation.z;
+
+
+  //printf("quat: %f, %f, %f, %f\n", e0, e1, e2, e3);
+
+  double r,p,y;
+  double as = std::min(-2. * (e1 * e3 - e0 * e2), .99999);
+  y =std::atan2(2 * (e1 * e2 + e0 * e3),
+                 square(e0) + square(e1) - square(e2) - square(e3));
+  p = std::asin(as);
+  r = std::atan2(2 * (e2 * e3 + e0 * e1),
+                 square(e0) - square(e1) - square(e2) + square(e3));
+ 
+  //printf("rpy: %f, %f, %f\n", r, p, y);
+
+
+  pose.R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
+  pose.R[0][1] = 2 * (e1 * e2 - e0 * e3);
+  pose.R[0][2] = 2 * (e1 * e3 + e0 * e2);
+
+  pose.R[1][0] = 2 * (e1 * e2 + e0 * e3);
+  pose.R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
+  pose.R[1][2] = 2 * (e2 * e3 - e0 * e1);
+
+  pose.R[2][0] = 2 * (e1 * e3 - e0 * e2);
+  pose.R[2][1] = 2 * (e2 * e3 + e0 * e1);
+  pose.R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
+
+  // transpose
+  //pose.R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
+  //pose.R[1][0] = 2 * (e1 * e2 - e0 * e3);
+  //pose.R[2][0] = 2 * (e1 * e3 + e0 * e2);
+
+  //pose.R[0][1] = 2 * (e1 * e2 + e0 * e3);
+  //pose.R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
+  //pose.R[2][1] = 2 * (e2 * e3 - e0 * e1);
+
+  //pose.R[0][2] = 2 * (e1 * e3 - e0 * e2);
+  //pose.R[1][2] = 2 * (e2 * e3 + e0 * e1);
+  //pose.R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
+}
 
 xyzq_pose_t poseFromRPY(double x, double y, double z, double roll, double pitch, double yaw) // yaw (Z), pitch (Y), roll (X)
 {
@@ -112,12 +251,6 @@ void coordinateTransformation( const xyzq_pose_t & pose,
     rs_pointcloud_t & outputCloud)
 {
   rotMat_t rotationMatrix = poseToRotationMatrix(pose);
-  /*
-     printf("mat: %f, %f, %f \n %f, %f, %f, \n, %f, %f,%f\n", 
-     rotationMatrix.R[0][0], rotationMatrix.R[0][1], rotationMatrix.R[0][2],
-     rotationMatrix.R[1][0], rotationMatrix.R[1][1], rotationMatrix.R[1][2],
-     rotationMatrix.R[2][0], rotationMatrix.R[2][1], rotationMatrix.R[2][2]);
-     */
   int r1 = 3, c1=3, num_pts = 5000;
 
   for (int pt_idx(0); pt_idx<num_pts; ++pt_idx){

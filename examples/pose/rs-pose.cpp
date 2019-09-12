@@ -8,12 +8,12 @@ int main(int argc, char * argv[]) try
 {
     // Declare RealSense pipeline, encapsulating the actual device and sensors
     rs2::pipeline pipe;
-    // Create a configuration for configuring the pipeline with a non default profile
+     // Create a configuration for configuring the pipeline with a non default profile
     rs2::config cfg;
     // Add pose stream
     cfg.enable_stream(RS2_STREAM_POSE, RS2_FORMAT_6DOF);
     // Start pipeline with chosen configuration
-    pipe.start(cfg);
+   pipe.start(cfg);
 
     // Main loop
     while (true)
