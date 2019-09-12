@@ -81,12 +81,21 @@ void localization_loop(){
   //global_to_T265.print("G2T");
   //T265_to_robot.print("T2R");
   //global_to_robot.print("G2R");
-  corrected_global_to_robot.print("corrected G2R");
+  //corrected_global_to_robot.print("corrected G2R");
   localization_lcmt global_to_robot_lcm;
   corrected_global_to_robot.set_localization_lcmt(global_to_robot_lcm);
   vision_lcm.publish("global_to_robot", &global_to_robot_lcm);
 }
 
+void pointcloud_process_running(){
+ while(true){ pointcloud_loop();
+std::this_thread::yield();}
+}
+
+void localization_process_running(){
+ while(true){ localization_loop(); 
+std::this_thread::yield(); }
+}
 struct worldmap {
   double map[WORLDMAP_SIZE][WORLDMAP_SIZE];
 };

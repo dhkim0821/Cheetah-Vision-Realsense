@@ -35,9 +35,11 @@ int main(int argc, char * argv[]) try
   // Declare RealSense pipeline, encapsulating the actual device and sensors
   rs2::pipeline D435pipe;
   rs2::config D435cfg;
-  D435cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
+  //D435cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
+  //D435cfg.enable_stream();
   // Start streaming with default recommended configuration
-  D435pipe.start(D435cfg);
+  //D435pipe.start(D435cfg);
+D435pipe.start();
   //pipe.start();
 
   //rs2::pipeline T265pipe;

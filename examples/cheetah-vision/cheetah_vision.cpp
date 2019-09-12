@@ -36,17 +36,21 @@ int main(int argc, char * argv[]) try
       //printf("stream higer rate with %s\n", name.c_str() );
       // Only when USB 3.0 is available
       // cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
-    }
-    pipe.start(cfg);
-    pipelines.emplace_back(pipe);
-  }
-  StateEstimatorPoseHandler stateEstimatorHandlerObject;
-  vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, 
-      &stateEstimatorHandlerObject);
-  std::thread lidar_sub_thread(&handleLCM);
+    }else{
 
-  pointcloud_thread = std::thread(&pointcloud_loop);
-  localization_thread = std::thread(&localization_loop);
+    cfg.enable_stream(RS2_STREAM_POSE, RS2_FORMAT_6DOF);
+}
+    pipe.start(cfg);
+    pipelines.push_back(pipe);
+    //pipelines.emplace_back(pipe);
+  }
+ // StateEstimatorPoseHandler stateEstimatorHandlerObject;
+ // vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, 
+   //   &stateEstimatorHandlerObject);
+ // std::thread lidar_sub_thread(&handleLCM);
+
+ pointcloud_thread = std::thread(&pointcloud_process_running);
+ localization_thread = std::thread(&localization_process_running);
 
   while (true) { usleep(10000); }
   return EXIT_SUCCESS;
@@ -78,6 +82,7 @@ void pointcloud_loop(){
 
   static int iter(0);
   ++iter;
+  if(iter%100 == 1) printf("point cloud loop is run\n");
 
   if(iter < 2){
     for(int i(0); i<1000;++i){
