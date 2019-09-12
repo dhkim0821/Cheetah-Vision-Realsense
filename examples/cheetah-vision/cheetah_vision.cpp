@@ -8,7 +8,6 @@
 
 
 #include "../../../Cheetah-Software/lcm-types/cpp/rs_pointcloud_t.hpp" // ask if this makes sense
-//#include "../../../Cheetah-Software/lcm-types/cpp/xyzq_pose_t.hpp"
 #include "../../../Cheetah-Software/lcm-types/cpp/heightmap_t.hpp"
 #include "../../../Cheetah-Software/lcm-types/cpp/traversability_map_t.hpp"
 #include "../../../Cheetah-Software/lcm-types/cpp/state_estimator_lcmt.hpp"
@@ -52,7 +51,6 @@ int main(int argc, char * argv[]) try
     pipelines.emplace_back(pipe);
   }
   
-  //LidarPoseHandler lidarHandlerObject; 
   StateEstimatorPoseHandler stateEstimatorHandlerObject;
   vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, &stateEstimatorHandlerObject);
   std::thread lidar_sub_thread(&handleLCM);
@@ -101,7 +99,9 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
   static heightmap_t local_heightmap;
   static worldmap world_heightmap;
   static traversability_map_t traversability;
+
   static int iter(0);
+  ++iter;
 
   if(iter < 2){
     for(int i(0); i<1000;++i){
@@ -118,7 +118,6 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
       }
     }
   }
-  ++iter;
 
   int erosion_size = 2;
   static cv::Mat erosion_element = cv::getStructuringElement(
@@ -129,24 +128,15 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
       cv::MORPH_ELLIPSE, cv::Size( 2*dilation_size + 1, 2*dilation_size+1 ), 
       cv::Point( dilation_size, dilation_size ) );
 
-  static xyzq_pose_t COM_to_D435_TF = poseFromRPY(0.28, 0.0, -0.01, 0., 0.49, 0.0);
-  //static xyzq_pose_t T265_to_COM_TF = poseFromRPY(0.0, 0.0, 0.07, 0., 1.5707, 0.);
-  static xyzq_pose_t T265_to_COM_TF = poseFromRPY(0.0, 0.0, 0.07, -M_PI/2., 0.,0. );
-
-  static SE3 robot_to_D435, T265_to_robot, global_to_T265_frame, T265_frame_to_T265; 
-  EulerToSE3(0.28, 0.0, -0.01, 0, 0.49, 0, robot_to_D435);
-  EulerToSE3(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2., T265_to_robot);
-  EulerToSE3(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2., global_to_T265_frame);
+  //static SE3 robot_to_D435, T265_to_robot, global_to_T265_frame, T265_frame_to_T265; 
+  //EulerToSE3(0.28, 0.0, -0.01, 0, 0.49, 0, robot_to_D435);
+  //EulerToSE3(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2., T265_to_robot);
+  //EulerToSE3(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2., global_to_T265_frame);
   rsPoseToSE3(pose_frame, T265_frame_to_T265);
-
   static SE3 global_to_T265, global_to_robot, global_to_D435;
 
   SE3Multi(global_to_T265_frame, T265_frame_to_T265, global_to_T265);
   SE3Multi(global_to_T265, T265_to_robot, global_to_robot);
-  //global_to_T265.print("G2T");
-  //T265_to_robot.print("T2R");
-  //global_to_robot.print("G2R");
-
   static SE3 initial_posture_correction; 
   static double rpy[3];
   if(iter<2){
@@ -172,7 +162,11 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
   static SE3 corrected_global_to_robot;
   SE3Multi(initial_posture_correction, global_to_robot, corrected_global_to_robot);
   SE3Multi(corrected_global_to_robot, robot_to_D435, global_to_D435);
-  //corrected_global_to_robot.print("corrected G2R");
+  
+  //global_to_T265.print("G2T");
+  T265_to_robot.print("T2R");
+  //global_to_robot.print("G2R");
+  corrected_global_to_robot.print("corrected G2R");
 
   //double rpy_corr[3];
   //corrected_global_to_robot.getRPY(rpy_corr);
@@ -213,14 +207,10 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
       break;
     }
   }
-  xyzq_pose_t state_estimator_xyzq = rsPoseToXYZQPose(pose_frame);
-  //printf("%f, %f,%f\n", state_estimator_xyzq.xyz[0], state_estimator_xyzq.xyz[1], state_estimator_xyzq.xyz[2]);
-
   global_to_D435.pointcloudTransformation(cf_pointcloud, wf_pointcloud);
 
   wfPCtoHeightmap(&wf_pointcloud, &world_heightmap, 5000); //right
-
-  extractLocalFromWorldHeightmap(&state_estimator_xyzq, &world_heightmap, &local_heightmap); // writes over local heightmap in place
+  extractLocalFromWorldHeightmap(global_to_robot.xyz, &world_heightmap, &local_heightmap); // writes over local heightmap in place
 
   cv::Mat cv_local_heightmap(100, 100, CV_64F, local_heightmap.map);
   cv::dilate( cv_local_heightmap, cv_local_heightmap, dilation_element );	
@@ -288,15 +278,12 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
     std::cout<<"trav map "<<traversability.map[50][0]<< "\n";
     std::cout<<"trav mat "<<traversability_mat.at<double>(50,0)<< "\n";*/
 
+  (wf_pointcloud).position[0] = corrected_global_to_robot.xyz[0];
+  (wf_pointcloud).position[1] = corrected_global_to_robot.xyz[1];
+  (wf_pointcloud).position[2] = corrected_global_to_robot.xyz[2];
+
 
   vision_lcm.publish("local_heightmap", &local_heightmap);
   vision_lcm.publish("traversability", &traversability);
-
-  (wf_pointcloud).position[0] = (state_estimator_xyzq).xyz[0];
-  (wf_pointcloud).position[1] = (state_estimator_xyzq).xyz[1];
-  (wf_pointcloud).position[2] = (state_estimator_xyzq).xyz[2];
-
-
-  //printf("8\n");
   vision_lcm.publish("cf_pointcloud", &wf_pointcloud);
 }

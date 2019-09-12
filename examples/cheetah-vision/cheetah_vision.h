@@ -1,17 +1,26 @@
-// My code
+#ifndef CHEETAH_VISION
+#define CHEETAH_VISION
+
 #include <lcm/lcm-cpp.hpp>
+#include "SE3.hpp"
 
-double square(double a) {
-  return a * a;
-}
+#define WORLDMAP_SIZE 1000
+float LOCAL_MAP_SIZE = 1.5; // in meters
+int CELLS_PER_M = ceil((float) 100 / LOCAL_MAP_SIZE);
+int WORLD_SIZE = 10;
 
+SE3 robot_to_D435(0.28, 0.0, -0.01, 0, 0.49, 0);
+SE3 T265_to_robot(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2.);
+SE3 global_to_T265_frame(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2.);
+SE3 T265_frame_to_T265;
+
+double square(double a) {  return a * a; }
 
 struct worldmap {
-  double map[1000][1000];
+  double map[WORLDMAP_SIZE][WORLDMAP_SIZE];
 };
 
-struct rotMat_t
-{
+struct rotMat_t {
   double R[3][3];
 };
 
@@ -20,74 +29,27 @@ struct xyzq_pose_t{
   double wxyz_quaternion[4];
 };
 
-class SE3{
-  public:
-    SE3(){}
-    ~SE3(){}
-
-  double xyz[3];
-  double R[3][3];
-
-  public:
-  void print(const std::string & name) const {
-    printf("%s:\n", name.c_str());
-    printf("%6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n\n",
-        R[0][0], R[0][1], R[0][2], xyz[0],
-        R[1][0], R[1][1], R[1][2], xyz[1],
-        R[2][0], R[2][1], R[2][2], xyz[2]);
-  }
-  void pointcloudTransformation(const rs_pointcloud_t & inputCloud, rs_pointcloud_t & outputCloud){
-    int r1(3), c1(3), num_pts(5000);
-
-    for (int pt_idx(0); pt_idx<num_pts; ++pt_idx){
-      for (int i=0; i<r1; i++){
-        outputCloud.pointlist[pt_idx][i] = xyz[i];
-        for(int k=0; k<c1; k++){
-          outputCloud.pointlist[pt_idx][i] += R[i][k]*inputCloud.pointlist[pt_idx][k];
-        }
-      }
-    }
-  }
-  void getRPY(double* rpy){ // ZYX
-    rpy[1] = std::asin(-R[2][0]);
-    if(fabs(cos(rpy[1]) ) > 0.000001){
-      rpy[0] = std::asin(R[2][1]/cos(rpy[1]));
-      rpy[2] = std::atan2(R[1][0], R[0][0]);
-    }else{
-      //undefined
-      rpy[0] = 0.;
-      rpy[2] = 0.;
-    }
-  }
-};
-
-int WORLD_SIZE = 10;
-
-float LOCAL_MAP_SIZE = 1.5; // in meters
-int CELLS_PER_M = ceil((float) 100 / LOCAL_MAP_SIZE);
-xyzq_pose_t lidar_pose;
 state_estimator_lcmt state_estimator_pose;
 lcm::LCM vision_lcm("udpm://239.255.76.67:7667?ttl=255");
 
-void EulerToSE3(double x, double y, double z, double r, double p, double yaw, SE3 & pose) // yaw (Z), pitch (Y), roll (X)
-{
-  pose.xyz[0] = x;
-  pose.xyz[1] = y;
-  pose.xyz[2] = z;
+//void EulerToSE3(double x, double y, double z, double r, double p, double yaw, SE3 & pose) // yaw (Z), pitch (Y), roll (X)
+//{
+  //pose.xyz[0] = x;
+  //pose.xyz[1] = y;
+  //pose.xyz[2] = z;
 
-  // ZYX implicit
-  pose.R[0][0] = cos(yaw)*cos(p);  
-  pose.R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
-  pose.R[0][2] = cos(yaw)*sin(p)*cos(r) + sin(yaw)*sin(r); 
+  //pose.R[0][0] = cos(yaw)*cos(p);  
+  //pose.R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
+  //pose.R[0][2] = cos(yaw)*sin(p)*cos(r) + sin(yaw)*sin(r); 
 
-  pose.R[1][0] = sin(yaw)*cos(p);  
-  pose.R[1][1] = sin(yaw)*sin(p)*sin(r) + cos(yaw)*cos(r); 
-  pose.R[1][2] = sin(yaw)*sin(p)*cos(r) - cos(yaw)*sin(r); 
+  //pose.R[1][0] = sin(yaw)*cos(p);  
+  //pose.R[1][1] = sin(yaw)*sin(p)*sin(r) + cos(yaw)*cos(r); 
+  //pose.R[1][2] = sin(yaw)*sin(p)*cos(r) - cos(yaw)*sin(r); 
 
-  pose.R[2][0] = -sin(p);
-  pose.R[2][1] = cos(p)*sin(r); 
-  pose.R[2][2] = cos(p)*cos(r);
-}
+  //pose.R[2][0] = -sin(p);
+  //pose.R[2][1] = cos(p)*sin(r); 
+  //pose.R[2][2] = cos(p)*cos(r);
+//}
 
 void SE3Multi(const SE3 & a, const SE3 & b, SE3 & out){
   double p[3];
@@ -126,8 +88,6 @@ void rsPoseToSE3(const rs2::pose_frame & pose_frame, SE3 & pose){
   //double e3 = -(double) pose_data.rotation.z;
 
 
-  //printf("quat: %f, %f, %f, %f\n", e0, e1, e2, e3);
-
   double r,p,y;
   double as = std::min(-2. * (e1 * e3 - e0 * e2), .99999);
   y =std::atan2(2 * (e1 * e2 + e0 * e3),
@@ -136,7 +96,6 @@ void rsPoseToSE3(const rs2::pose_frame & pose_frame, SE3 & pose){
   r = std::atan2(2 * (e2 * e3 + e0 * e1),
                  square(e0) - square(e1) - square(e2) + square(e3));
  
-  //printf("rpy: %f, %f, %f\n", r, p, y);
 
 
   pose.R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
@@ -211,65 +170,12 @@ rotMat_t poseToRotationMatrix(xyzq_pose_t pose){
   return rotMat;
 }
 
-xyzq_pose_t stateEstimatorToXYZQPose(state_estimator_lcmt state_estimate){
-
-  xyzq_pose_t xyzq_pose; 
-  xyzq_pose.xyz[0] = (double) state_estimate.p[0];	
-  xyzq_pose.xyz[1] = (double) state_estimate.p[1];	
-  xyzq_pose.xyz[2] = (double) state_estimate.p[2];	
-
-  //xyzq_pose.xyz[0] = 0.;
-  //xyzq_pose.xyz[1] = 0.;
-  //xyzq_pose.xyz[2] = 0.;
-
-  xyzq_pose.wxyz_quaternion[0] = (double) state_estimate.quat[0];	
-  xyzq_pose.wxyz_quaternion[1] = (double) state_estimate.quat[1];
-  xyzq_pose.wxyz_quaternion[2] = (double) state_estimate.quat[2];
-  xyzq_pose.wxyz_quaternion[3] = (double) state_estimate.quat[3];
-
-
-  return xyzq_pose;
-}
-
-xyzq_pose_t rsPoseToXYZQPose(const rs2::pose_frame & pose_frame){
-  xyzq_pose_t xyzq_pose;
-  auto pose_data = pose_frame.get_pose_data();
-  xyzq_pose.xyz[0] = (double) pose_data.translation.x;  
-  xyzq_pose.xyz[1] = (double) pose_data.translation.y;  
-  xyzq_pose.xyz[2] = (double) pose_data.translation.z;  
-
-  xyzq_pose.wxyz_quaternion[0] = (double) pose_data.rotation.w; 
-  xyzq_pose.wxyz_quaternion[1] = (double) pose_data.rotation.x;
-  xyzq_pose.wxyz_quaternion[2] = (double) pose_data.rotation.y;
-  xyzq_pose.wxyz_quaternion[3] = (double) pose_data.rotation.z;
-
-  return xyzq_pose;
-}
-
-void coordinateTransformation( const xyzq_pose_t & pose, 
-    const rs_pointcloud_t & inputCloud,
-    rs_pointcloud_t & outputCloud)
-{
-  rotMat_t rotationMatrix = poseToRotationMatrix(pose);
-  int r1 = 3, c1=3, num_pts = 5000;
-
-  for (int pt_idx(0); pt_idx<num_pts; ++pt_idx){
-    for (int i=0; i<r1; i++){
-      outputCloud.pointlist[pt_idx][i] = pose.xyz[i];
-      for(int k=0; k<c1; k++){
-        outputCloud.pointlist[pt_idx][i] += 
-          rotationMatrix.R[k][i]*inputCloud.pointlist[pt_idx][k];
-      }
-    }
-  }
-}
-
-void extractLocalFromWorldHeightmap(xyzq_pose_t* lidar_pose_ptr, worldmap* worldmap_ptr, heightmap_t* local_heightmap_ptr)
+void extractLocalFromWorldHeightmap(double* xyz, worldmap* worldmap_ptr, heightmap_t* local_heightmap_ptr)
 {
   //Copy out local heightmap
   // 		calculate index of center of local map in world map
-  int pose_x_ind = (*lidar_pose_ptr).xyz[0]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1; 
-  int pose_y_ind = (*lidar_pose_ptr).xyz[1]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1;
+  int pose_x_ind = xyz[0]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1; 
+  int pose_y_ind = xyz[1]*CELLS_PER_M + WORLD_SIZE*CELLS_PER_M/2 -1;
 
   int UPPER_LIM = floor(((double)CELLS_PER_M) * LOCAL_MAP_SIZE);
   for (int i = 0; i < UPPER_LIM; i++)
@@ -300,20 +206,6 @@ void wfPCtoHeightmap(rs_pointcloud_t* wf_pointcloud_ptr, worldmap* world_heightm
   }
 }
 
-class LidarPoseHandler
-{
-  public:
-    ~LidarPoseHandler() {}
-
-    void handlePose(const lcm::ReceiveBuffer* rbuf, 
-        const std::string& chan, 
-        const xyzq_pose_t* msg)
-    {
-      lidar_pose = *msg;
-      //std::cout<<"receive lidar"<<std::endl;
-    }
-};
-
 class StateEstimatorPoseHandler
 {
   public:
@@ -330,8 +222,30 @@ class StateEstimatorPoseHandler
 
 
 
+xyzq_pose_t stateEstimatorToXYZQPose(state_estimator_lcmt state_estimate){
+
+  xyzq_pose_t xyzq_pose; 
+  xyzq_pose.xyz[0] = (double) state_estimate.p[0];	
+  xyzq_pose.xyz[1] = (double) state_estimate.p[1];	
+  xyzq_pose.xyz[2] = (double) state_estimate.p[2];	
+
+  //xyzq_pose.xyz[0] = 0.;
+  //xyzq_pose.xyz[1] = 0.;
+  //xyzq_pose.xyz[2] = 0.;
+
+  xyzq_pose.wxyz_quaternion[0] = (double) state_estimate.quat[0];	
+  xyzq_pose.wxyz_quaternion[1] = (double) state_estimate.quat[1];
+  xyzq_pose.wxyz_quaternion[2] = (double) state_estimate.quat[2];
+  xyzq_pose.wxyz_quaternion[3] = (double) state_estimate.quat[3];
+
+
+  return xyzq_pose;
+}
+
 void handleLCM() {
   while (true)  { 
     vision_lcm.handle();
   };
 }
+
+#endif
