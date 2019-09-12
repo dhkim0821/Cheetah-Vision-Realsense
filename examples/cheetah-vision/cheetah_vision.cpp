@@ -45,12 +45,12 @@ int main(int argc, char * argv[]) try
     std::string name = dev.get_info(RS2_CAMERA_INFO_NAME);
     if( (name.compare("Intel RealSense D435")) == 0 ){
       printf("stream higer rate with %s\n", name.c_str() );
-      cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
+     // cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
     }
     pipe.start(cfg);
     pipelines.emplace_back(pipe);
   }
-  
+ 
   StateEstimatorPoseHandler stateEstimatorHandlerObject;
   vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, &stateEstimatorHandlerObject);
   std::thread lidar_sub_thread(&handleLCM);
@@ -74,6 +74,9 @@ int main(int argc, char * argv[]) try
     
     // Cast the frame to pose_frame and get its data
     auto pose_frame = f.as<rs2::pose_frame>();
+
+//rs2::frame f;
+//rs2::pose_frame pose_frame(f);
 
     _ProcessPointCloudData(points, pose_frame);
     if(count%100 ==1) {
@@ -164,7 +167,7 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
   SE3Multi(corrected_global_to_robot, robot_to_D435, global_to_D435);
   
   //global_to_T265.print("G2T");
-  T265_to_robot.print("T2R");
+  //T265_to_robot.print("T2R");
   //global_to_robot.print("G2R");
   corrected_global_to_robot.print("corrected G2R");
 
