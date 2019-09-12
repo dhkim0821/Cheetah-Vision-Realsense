@@ -26,14 +26,16 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
 
 int main(int argc, char * argv[]) try
 {
+  printf("start vision processing\n");
+  rs2::context ctx; // Create librealsense context for managing devices
 
   // Declare pointcloud object, for calculating pointclouds and texture mappings
   rs2::pointcloud pc;
   // We want the points object to be persistent so we can display the last cloud when a frame drops
   rs2::points points;
   rs2_pose pose;
-  rs2::context ctx;        // Create librealsense context for managing devices
   std::vector<rs2::pipeline> pipelines;
+
   // Declare RealSense pipeline, encapsulating the actual device and sensors
   for (auto&& dev : ctx.query_devices())  {
     rs2::pipeline pipe(ctx);
@@ -42,14 +44,12 @@ int main(int argc, char * argv[]) try
 
     printf("%s\n", dev.get_info(RS2_CAMERA_INFO_NAME) );
     std::string name = dev.get_info(RS2_CAMERA_INFO_NAME);
-
     if( (name.compare("Intel RealSense D435")) == 0 ){
       printf("stream higer rate with %s\n", name.c_str() );
       cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
     }
     pipe.start(cfg);
     pipelines.emplace_back(pipe);
-    printf("done\n");
   }
   
   //LidarPoseHandler lidarHandlerObject; 
@@ -134,27 +134,18 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
   static xyzq_pose_t T265_to_COM_TF = poseFromRPY(0.0, 0.0, 0.07, -M_PI/2., 0.,0. );
 
   static SE3 robot_to_D435, T265_to_robot, global_to_T265_frame, T265_frame_to_T265; 
-  static SE3 T265_frame_to_global_ori;
   EulerToSE3(0.28, 0.0, -0.01, 0, 0.49, 0, robot_to_D435);
   EulerToSE3(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2., T265_to_robot);
   EulerToSE3(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2., global_to_T265_frame);
-  EulerToSE3(0.0, 0.0, 0.0, M_PI, 0.0, -M_PI/2., T265_frame_to_global_ori);
-  //EulerToSE3(0.0, 0.0, 0.07, M_PI, 0.0, -M_PI/2., T265_to_robot);
-  //T265_frame_to_global_ori.print("T2 to global ori");
   rsPoseToSE3(pose_frame, T265_frame_to_T265);
-  //T265_frame_to_T265.print("Tf2T");
-
-  //static SE3 T265_global_ori;
-  //SE3Multi(T265_frame_to_T265, T265_frame_to_global_ori, T265_global_ori);
-  //T265_global_ori.print("T2_global_ori");
 
   static SE3 global_to_T265, global_to_robot, global_to_D435;
 
   SE3Multi(global_to_T265_frame, T265_frame_to_T265, global_to_T265);
   SE3Multi(global_to_T265, T265_to_robot, global_to_robot);
-  global_to_T265.print("G2T");
+  //global_to_T265.print("G2T");
   //T265_to_robot.print("T2R");
-  global_to_robot.print("G2R");
+  //global_to_robot.print("G2R");
 
   static SE3 initial_posture_correction; 
   static double rpy[3];
@@ -176,25 +167,20 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
     initial_posture_correction.R[2][1] = 0.;
     initial_posture_correction.R[2][2] = 1.;
   }
-  initial_posture_correction.print("correction");
-  printf("initial rpy: %f, %f, %f\n", rpy[0], rpy[1], rpy[2]);
+  //initial_posture_correction.print("correction");
+  //printf("initial rpy: %f, %f, %f\n", rpy[0], rpy[1], rpy[2]);
   static SE3 corrected_global_to_robot;
   SE3Multi(initial_posture_correction, global_to_robot, corrected_global_to_robot);
-  //SE3Multi(global_to_robot, initial_posture_correction, corrected_global_to_robot);
-  //SE3Multi(global_to_robot, robot_to_D435, global_to_D435);
   SE3Multi(corrected_global_to_robot, robot_to_D435, global_to_D435);
-  corrected_global_to_robot.print("corrected G2R");
+  //corrected_global_to_robot.print("corrected G2R");
 
-  double rpy_corr[3];
-  corrected_global_to_robot.getRPY(rpy_corr);
-  printf("rpy_corr: %f, %f, %f\n", rpy_corr[0], rpy_corr[1], rpy_corr[2]);
+  //double rpy_corr[3];
+  //corrected_global_to_robot.getRPY(rpy_corr);
+  //printf("rpy_corr: %f, %f, %f\n", rpy_corr[0], rpy_corr[1], rpy_corr[2]);
 
   static rs_pointcloud_t cf_pointcloud; // 921600
   static rs_pointcloud_t wf_pointcloud; 
-  static rs_pointcloud_t rf_pointcloud;
   static rs_pointcloud_t TRS_pointcloud; // tracking realsense
-  //printf("3\n");
-
 
   int num_points = points.size();
   auto vertices = points.get_vertices(); 
@@ -227,15 +213,8 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
       break;
     }
   }
-
-  //coordinateTransformation(COM_to_D435_TF, cf_pointcloud, rf_pointcloud);
-  //coordinateTransformation(T265_to_COM_TF, rf_pointcloud, TRS_pointcloud);
-
-  // xyzq_pose_t state_estimator_xyzq = stateEstimatorToXYZQPose(state_estimator_pose);
   xyzq_pose_t state_estimator_xyzq = rsPoseToXYZQPose(pose_frame);
   //printf("%f, %f,%f\n", state_estimator_xyzq.xyz[0], state_estimator_xyzq.xyz[1], state_estimator_xyzq.xyz[2]);
-
-  //coordinateTransformation(state_estimator_xyzq, TRS_pointcloud, wf_pointcloud);
 
   global_to_D435.pointcloudTransformation(cf_pointcloud, wf_pointcloud);
 
@@ -312,7 +291,7 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
 
   vision_lcm.publish("local_heightmap", &local_heightmap);
   vision_lcm.publish("traversability", &traversability);
-  //vision_lcm.publish("cf_pointcloud", &rf_pointcloud);
+
   (wf_pointcloud).position[0] = (state_estimator_xyzq).xyz[0];
   (wf_pointcloud).position[1] = (state_estimator_xyzq).xyz[1];
   (wf_pointcloud).position[2] = (state_estimator_xyzq).xyz[2];
