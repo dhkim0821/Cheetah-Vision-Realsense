@@ -1,8 +1,15 @@
 #ifndef CHEETAH_VISION
 #define CHEETAH_VISION
 
+#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include <lcm/lcm-cpp.hpp>
+#include <thread>
 #include "SE3.hpp"
+#include "../../../Cheetah-Software/lcm-types/cpp/state_estimator_lcmt.hpp"
+#include "../../../Cheetah-Software/lcm-types/cpp/localization_lcmt.hpp"
+
+state_estimator_lcmt state_estimator_pose;
+lcm::LCM vision_lcm("udpm://239.255.76.67:7667?ttl=255");
 
 #define WORLDMAP_SIZE 1000
 float LOCAL_MAP_SIZE = 1.5; // in meters
@@ -12,9 +19,73 @@ int WORLD_SIZE = 10;
 SE3 robot_to_D435(0.28, 0.0, -0.01, 0, 0.49, 0);
 SE3 T265_to_robot(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2.);
 SE3 global_to_T265_frame(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2.);
-SE3 T265_frame_to_T265;
 
-double square(double a) {  return a * a; }
+SE3 T265_frame_to_T265, global_to_T265, global_to_robot, global_to_D435;
+SE3 corrected_global_to_robot;
+SE3 initial_posture_correction; 
+std::vector<rs2::pipeline> pipelines;
+
+// Declare pointcloud object, for calculating pointclouds and texture mappings
+rs2::pointcloud pc;
+// We want the points object to be persistent so we can display the last cloud when a frame drops
+rs2::points points;
+
+std::thread pointcloud_thread;
+std::thread localization_thread;
+
+void pointcloud_loop();
+
+void localization_loop(){
+  static int iter(0);
+  ++iter;
+  if(iter%500 == 1){
+    printf("localization loop is running: %d\n", iter);
+  }
+  // Wait for the next set of frames from the camera
+  auto T265frames = pipelines[1].wait_for_frames();
+  // Get a frame from the pose stream
+  auto f = T265frames.first_or_default(RS2_STREAM_POSE);
+
+  // Cast the frame to pose_frame and get its data
+  auto pose_frame = f.as<rs2::pose_frame>();
+
+  T265_frame_to_T265.rsPoseToSE3(pose_frame);
+
+  SE3::SE3Multi(global_to_T265_frame, T265_frame_to_T265, global_to_T265);
+  SE3::SE3Multi(global_to_T265, T265_to_robot, global_to_robot);
+
+  static double rpy[3];
+  if(iter<2){
+    global_to_robot.getRPY(rpy);
+    initial_posture_correction.xyz[0] = 0.;
+    initial_posture_correction.xyz[1] = 0.;
+    initial_posture_correction.xyz[2] = 0.;
+
+    initial_posture_correction.R[0][0] = cos(-rpy[2]);
+    initial_posture_correction.R[0][1] = -sin(-rpy[2]);
+    initial_posture_correction.R[0][2] = 0.;
+
+    initial_posture_correction.R[1][0] = sin(-rpy[2]);
+    initial_posture_correction.R[1][1] = cos(-rpy[2]);
+    initial_posture_correction.R[1][2] = 0.;
+
+    initial_posture_correction.R[2][0] = 0.;
+    initial_posture_correction.R[2][1] = 0.;
+    initial_posture_correction.R[2][2] = 1.;
+  }
+  //initial_posture_correction.print("correction");
+  //printf("initial rpy: %f, %f, %f\n", rpy[0], rpy[1], rpy[2]);
+  SE3::SE3Multi(initial_posture_correction, global_to_robot, corrected_global_to_robot);
+  SE3::SE3Multi(corrected_global_to_robot, robot_to_D435, global_to_D435);
+  
+  //global_to_T265.print("G2T");
+  //T265_to_robot.print("T2R");
+  //global_to_robot.print("G2R");
+  corrected_global_to_robot.print("corrected G2R");
+  localization_lcmt global_to_robot_lcm;
+  corrected_global_to_robot.set_localization_lcmt(global_to_robot_lcm);
+  vision_lcm.publish("global_to_robot", &global_to_robot_lcm);
+}
 
 struct worldmap {
   double map[WORLDMAP_SIZE][WORLDMAP_SIZE];
@@ -28,101 +99,6 @@ struct xyzq_pose_t{
   double xyz[3];
   double wxyz_quaternion[4];
 };
-
-state_estimator_lcmt state_estimator_pose;
-lcm::LCM vision_lcm("udpm://239.255.76.67:7667?ttl=255");
-
-//void EulerToSE3(double x, double y, double z, double r, double p, double yaw, SE3 & pose) // yaw (Z), pitch (Y), roll (X)
-//{
-  //pose.xyz[0] = x;
-  //pose.xyz[1] = y;
-  //pose.xyz[2] = z;
-
-  //pose.R[0][0] = cos(yaw)*cos(p);  
-  //pose.R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
-  //pose.R[0][2] = cos(yaw)*sin(p)*cos(r) + sin(yaw)*sin(r); 
-
-  //pose.R[1][0] = sin(yaw)*cos(p);  
-  //pose.R[1][1] = sin(yaw)*sin(p)*sin(r) + cos(yaw)*cos(r); 
-  //pose.R[1][2] = sin(yaw)*sin(p)*cos(r) - cos(yaw)*sin(r); 
-
-  //pose.R[2][0] = -sin(p);
-  //pose.R[2][1] = cos(p)*sin(r); 
-  //pose.R[2][2] = cos(p)*cos(r);
-//}
-
-void SE3Multi(const SE3 & a, const SE3 & b, SE3 & out){
-  double p[3];
-  for(int i(0); i<3; ++i){
-    p[i] = 0;
-    for(int k(0); k<3; ++k){
-      out.R[i][k] =0;
-      p[i] += a.R[i][k] * b.xyz[k];
-      for(int j(0); j<3; ++j){
-        out.R[i][k] += (a.R[i][j]*b.R[j][k]);
-      }
-    }
-    out.xyz[i] = a.xyz[i] + p[i];
-  }
-}
-
-void rsPoseToSE3(const rs2::pose_frame & pose_frame, SE3 & pose){
-  auto pose_data = pose_frame.get_pose_data();
-  //pose.xyz[0] = -(double) pose_data.translation.y;  
-  //pose.xyz[1] = -(double) pose_data.translation.x;  
-  //pose.xyz[2] = -(double) pose_data.translation.z;  
-
-  pose.xyz[0] = (double) pose_data.translation.x;  
-  pose.xyz[1] = (double) pose_data.translation.y;  
-  pose.xyz[2] = (double) pose_data.translation.z;  
-
-
-  double e0 = (double) pose_data.rotation.w; 
-  double e1 = (double) pose_data.rotation.x;
-  double e2 = (double) pose_data.rotation.y;
-  double e3 = (double) pose_data.rotation.z;
-  
-  //double e0 = (double) pose_data.rotation.w; 
-  //double e1 = -(double) pose_data.rotation.y;
-  //double e2 = -(double) pose_data.rotation.x;
-  //double e3 = -(double) pose_data.rotation.z;
-
-
-  double r,p,y;
-  double as = std::min(-2. * (e1 * e3 - e0 * e2), .99999);
-  y =std::atan2(2 * (e1 * e2 + e0 * e3),
-                 square(e0) + square(e1) - square(e2) - square(e3));
-  p = std::asin(as);
-  r = std::atan2(2 * (e2 * e3 + e0 * e1),
-                 square(e0) - square(e1) - square(e2) + square(e3));
- 
-
-
-  pose.R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
-  pose.R[0][1] = 2 * (e1 * e2 - e0 * e3);
-  pose.R[0][2] = 2 * (e1 * e3 + e0 * e2);
-
-  pose.R[1][0] = 2 * (e1 * e2 + e0 * e3);
-  pose.R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
-  pose.R[1][2] = 2 * (e2 * e3 - e0 * e1);
-
-  pose.R[2][0] = 2 * (e1 * e3 - e0 * e2);
-  pose.R[2][1] = 2 * (e2 * e3 + e0 * e1);
-  pose.R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
-
-  // transpose
-  //pose.R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
-  //pose.R[1][0] = 2 * (e1 * e2 - e0 * e3);
-  //pose.R[2][0] = 2 * (e1 * e3 + e0 * e2);
-
-  //pose.R[0][1] = 2 * (e1 * e2 + e0 * e3);
-  //pose.R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
-  //pose.R[2][1] = 2 * (e2 * e3 - e0 * e1);
-
-  //pose.R[0][2] = 2 * (e1 * e3 - e0 * e2);
-  //pose.R[1][2] = 2 * (e2 * e3 + e0 * e1);
-  //pose.R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
-}
 
 xyzq_pose_t poseFromRPY(double x, double y, double z, double roll, double pitch, double yaw) // yaw (Z), pitch (Y), roll (X)
 {
@@ -147,28 +123,6 @@ xyzq_pose_t poseFromRPY(double x, double y, double z, double roll, double pitch,
   return pose;
 }
 
-
-rotMat_t poseToRotationMatrix(xyzq_pose_t pose){
-  double e0 = pose.wxyz_quaternion[0]; // w x y z
-  double e1 = pose.wxyz_quaternion[1];
-  double e2 = pose.wxyz_quaternion[2];
-  double e3 = pose.wxyz_quaternion[3];
-  rotMat_t rotMat;
-
-  rotMat.R[0][0] = 1-2*(e2*e2 + e3*e3);
-  rotMat.R[1][0] = 2*(e1*e2 - e0*e3);
-  rotMat.R[2][0] = 2*(e1*e3 + e0*e2);
-
-  rotMat.R[0][1] = 2*(e1*e2 + e0*e3);
-  rotMat.R[1][1] = 1-2*(e1*e1 + e3*e3);
-  rotMat.R[2][1] = 2*(e2*e3 - e0*e1);
-
-  rotMat.R[0][2] = 2*(e1*e3 - e0*e2);
-  rotMat.R[1][2] = 2*(e2*e3 + e0*e1);
-  rotMat.R[2][2] = 1-2*(e1*e1 + e2*e2);
-
-  return rotMat;
-}
 
 void extractLocalFromWorldHeightmap(double* xyz, worldmap* worldmap_ptr, heightmap_t* local_heightmap_ptr)
 {
@@ -219,28 +173,6 @@ class StateEstimatorPoseHandler
       //std::cout<<"receive lidar"<<std::endl;
     }
 };
-
-
-
-xyzq_pose_t stateEstimatorToXYZQPose(state_estimator_lcmt state_estimate){
-
-  xyzq_pose_t xyzq_pose; 
-  xyzq_pose.xyz[0] = (double) state_estimate.p[0];	
-  xyzq_pose.xyz[1] = (double) state_estimate.p[1];	
-  xyzq_pose.xyz[2] = (double) state_estimate.p[2];	
-
-  //xyzq_pose.xyz[0] = 0.;
-  //xyzq_pose.xyz[1] = 0.;
-  //xyzq_pose.xyz[2] = 0.;
-
-  xyzq_pose.wxyz_quaternion[0] = (double) state_estimate.quat[0];	
-  xyzq_pose.wxyz_quaternion[1] = (double) state_estimate.quat[1];
-  xyzq_pose.wxyz_quaternion[2] = (double) state_estimate.quat[2];
-  xyzq_pose.wxyz_quaternion[3] = (double) state_estimate.quat[3];
-
-
-  return xyzq_pose;
-}
 
 void handleLCM() {
   while (true)  { 

@@ -1,6 +1,11 @@
 #ifndef SE3_CHEETAH
 #define SE3_CHEETAH
 
+#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
+#include "../../../Cheetah-Software/lcm-types/cpp/localization_lcmt.hpp"
+
+double square(double a) {  return a * a; }
+
 class SE3{
   public:
     SE3(){}
@@ -28,6 +33,77 @@ class SE3{
     double R[3][3];
 
   public:
+    void set_localization_lcmt(localization_lcmt & lcm_t){
+      // Rotation matrix to quaternion
+      double rpy[3];
+      getRPY(rpy);
+      for(int i(0); i<3; ++i){
+        lcm_t.xyz[i] = xyz[i];
+        lcm_t.rpy[i] = rpy[i];
+      }
+    }
+
+    void rsPoseToSE3(const rs2::pose_frame & pose_frame){
+      auto pose_data = pose_frame.get_pose_data();
+
+      xyz[0] = (double) pose_data.translation.x;  
+      xyz[1] = (double) pose_data.translation.y;  
+      xyz[2] = (double) pose_data.translation.z;  
+
+      double e0 = (double) pose_data.rotation.w; 
+      double e1 = (double) pose_data.rotation.x;
+      double e2 = (double) pose_data.rotation.y;
+      double e3 = (double) pose_data.rotation.z;
+
+      //double r,p,y;
+      //double as = std::min(-2. * (e1 * e3 - e0 * e2), .99999);
+      //y =std::atan2(2 * (e1 * e2 + e0 * e3),
+          //square(e0) + square(e1) - square(e2) - square(e3));
+      //p = std::asin(as);
+      //r = std::atan2(2 * (e2 * e3 + e0 * e1),
+          //square(e0) - square(e1) - square(e2) + square(e3));
+
+      R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
+      R[0][1] = 2 * (e1 * e2 - e0 * e3);
+      R[0][2] = 2 * (e1 * e3 + e0 * e2);
+
+      R[1][0] = 2 * (e1 * e2 + e0 * e3);
+      R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
+      R[1][2] = 2 * (e2 * e3 - e0 * e1);
+
+      R[2][0] = 2 * (e1 * e3 - e0 * e2);
+      R[2][1] = 2 * (e2 * e3 + e0 * e1);
+      R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
+
+      // transpose
+      //R[0][0] = 1 - 2 * (e2 * e2 + e3 * e3);
+      //R[1][0] = 2 * (e1 * e2 - e0 * e3);
+      //R[2][0] = 2 * (e1 * e3 + e0 * e2);
+
+      //R[0][1] = 2 * (e1 * e2 + e0 * e3);
+      //R[1][1] = 1 - 2 * (e1 * e1 + e3 * e3);
+      //R[2][1] = 2 * (e2 * e3 - e0 * e1);
+
+      //R[0][2] = 2 * (e1 * e3 - e0 * e2);
+      //R[1][2] = 2 * (e2 * e3 + e0 * e1);
+      //R[2][2] = 1 - 2 * (e1 * e1 + e2 * e2);
+    }
+    static void SE3Multi(const SE3 & a, const SE3 & b, SE3 & out){
+      double p[3];
+      for(int i(0); i<3; ++i){
+        p[i] = 0;
+        for(int k(0); k<3; ++k){
+          out.R[i][k] =0;
+          p[i] += a.R[i][k] * b.xyz[k];
+          for(int j(0); j<3; ++j){
+            out.R[i][k] += (a.R[i][j]*b.R[j][k]);
+          }
+        }
+        out.xyz[i] = a.xyz[i] + p[i];
+      }
+    }
+
+
     void print(const std::string & name) const {
       printf("%s:\n", name.c_str());
       printf("%6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n %6.6f, %6.6f, %6.6f, %6.6f\n\n",
