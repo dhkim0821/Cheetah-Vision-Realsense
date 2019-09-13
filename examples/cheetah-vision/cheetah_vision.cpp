@@ -37,20 +37,19 @@ int main(int argc, char * argv[]) try
       // Only when USB 3.0 is available
       // cfg.enable_stream(RS2_STREAM_DEPTH, 640,480, RS2_FORMAT_Z16, 90);
     }else{
-
-    cfg.enable_stream(RS2_STREAM_POSE, RS2_FORMAT_6DOF);
-}
+      cfg.enable_stream(RS2_STREAM_POSE, RS2_FORMAT_6DOF);
+    }
     pipe.start(cfg);
     pipelines.push_back(pipe);
     //pipelines.emplace_back(pipe);
   }
- // StateEstimatorPoseHandler stateEstimatorHandlerObject;
- // vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, 
-   //   &stateEstimatorHandlerObject);
- // std::thread lidar_sub_thread(&handleLCM);
+  // StateEstimatorPoseHandler stateEstimatorHandlerObject;
+  // vision_lcm.subscribe("state_estimator", &StateEstimatorPoseHandler::handlePose, 
+  //   &stateEstimatorHandlerObject);
+  // std::thread lidar_sub_thread(&handleLCM);
 
- pointcloud_thread = std::thread(&pointcloud_process_running);
- localization_thread = std::thread(&localization_process_running);
+  pointcloud_thread = std::thread(&pointcloud_process_running);
+  localization_thread = std::thread(&localization_process_running);
 
   while (true) { usleep(10000); }
   return EXIT_SUCCESS;
@@ -174,12 +173,12 @@ void pointcloud_loop(){
       traversability.map[i][j] = traversability_mat.at<double>(i,j);
     }
   }
-  (wf_pointcloud).position[0] = corrected_global_to_robot.xyz[0];
-  (wf_pointcloud).position[1] = corrected_global_to_robot.xyz[1];
-  (wf_pointcloud).position[2] = corrected_global_to_robot.xyz[2];
+  (local_heightmap).robot_loc[0] = corrected_global_to_robot.xyz[0];
+  (local_heightmap).robot_loc[1] = corrected_global_to_robot.xyz[1];
+  (local_heightmap).robot_loc[2] = corrected_global_to_robot.xyz[2];
 
 
   vision_lcm.publish("local_heightmap", &local_heightmap);
   vision_lcm.publish("traversability", &traversability);
-  vision_lcm.publish("cf_pointcloud", &wf_pointcloud);
+  //vision_lcm.publish("cf_pointcloud", &wf_pointcloud);
 }
