@@ -18,13 +18,32 @@ endif()
 if(BUILD_GRAPHICAL_EXAMPLES)
     #pointcloud
     add_executable(cheetah-vision cheetah_vision.cpp ../example.hpp)
+    add_executable(cheetah-localization cheetah_localization.cpp ../example.hpp)
+    add_executable(cheetah-pointcloud cheetah_pointcloud.cpp ../example.hpp)
+
     set_property(TARGET cheetah-vision PROPERTY CXX_STANDARD 11)
+    set_property(TARGET cheetah-localization PROPERTY CXX_STANDARD 11)
+    set_property(TARGET cheetah-pointcloud PROPERTY CXX_STANDARD 11)
+
     target_link_libraries(cheetah-vision ${DEPENDENCIES})
     target_link_libraries(cheetah-vision lcm)
+    target_link_libraries(cheetah-localization ${DEPENDENCIES})
+    target_link_libraries(cheetah-localization lcm)
+    target_link_libraries(cheetah-pointcloud ${DEPENDENCIES})
+    target_link_libraries(cheetah-pointcloud lcm)
+
     find_package( OpenCV REQUIRED )
     include_directories(${OpenCV_INCLUDE_DIRS})
     target_link_libraries(cheetah-vision ${OpenCV_LIBS})
+    target_link_libraries(cheetah-pointcloud ${OpenCV_LIBS})
+
     include_directories(cheetah-vision ../)
+    include_directories(cheetah-localization ../)
+    include_directories(cheetah-pointcloud ../)
+
     set_target_properties (cheetah-vision PROPERTIES FOLDER Examples)
+    set_target_properties (cheetah-localization PROPERTIES FOLDER Examples)
+    set_target_properties (cheetah-pointcloud PROPERTIES FOLDER Examples)
+
     install(TARGETS cheetah-vision RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

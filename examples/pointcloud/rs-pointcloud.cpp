@@ -259,9 +259,9 @@ void _ProcessPointCloudData(const rs2::points & points, const rs2::pose_frame & 
   vision_lcm.publish("local_heightmap", &local_heightmap);
   vision_lcm.publish("traversability", &traversability);
   //vision_lcm.publish("cf_pointcloud", &rf_pointcloud);
-  (wf_pointcloud).position[0] = (state_estimator_xyzq).xyz[0];
-  (wf_pointcloud).position[1] = (state_estimator_xyzq).xyz[1];
-  (wf_pointcloud).position[2] = (state_estimator_xyzq).xyz[2];
+  (local_heightmap).robot_loc[0] = (state_estimator_xyzq).xyz[0];
+  (local_heightmap).robot_loc[1] = (state_estimator_xyzq).xyz[1];
+  (local_heightmap).robot_loc[2] = (state_estimator_xyzq).xyz[2];
 
 
   //printf("8\n");

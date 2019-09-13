@@ -3,6 +3,7 @@
 
 #include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
 #include "../../../Cheetah-Software/lcm-types/cpp/localization_lcmt.hpp"
+#include "../../../Cheetah-Software/lcm-types/cpp/rs_pointcloud_t.hpp"
 
 double square(double a) {  return a * a; }
 
@@ -29,12 +30,14 @@ class SE3{
       R[2][1] = cos(p)*sin(r); 
       R[2][2] = cos(p)*cos(r);
     }
-    double xyz[3];
-    double R[3][3];
+    double xyz[3] = {0., 0., 0.};
+    double R[3][3] = 
+    {{1., 0., 0.},
+    {0., 1., 0.},
+    {0., 0., 1.}};
 
   public:
     void set_localization_lcmt(localization_lcmt & lcm_t){
-      // Rotation matrix to quaternion
       double rpy[3];
       getRPY(rpy);
       for(int i(0); i<3; ++i){
@@ -42,6 +45,29 @@ class SE3{
         lcm_t.rpy[i] = rpy[i];
       }
     }
+
+    void get_localization_lcmt(const localization_lcmt & lcm_t){
+      double r = lcm_t.rpy[0];
+      double p = lcm_t.rpy[1];
+      double yaw = lcm_t.rpy[2];
+
+      R[0][0] = cos(yaw)*cos(p);  
+      R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
+      R[0][2] = cos(yaw)*sin(p)*cos(r) + sin(yaw)*sin(r); 
+
+      R[1][0] = sin(yaw)*cos(p);  
+      R[1][1] = sin(yaw)*sin(p)*sin(r) + cos(yaw)*cos(r); 
+      R[1][2] = sin(yaw)*sin(p)*cos(r) - cos(yaw)*sin(r); 
+
+      R[2][0] = -sin(p);
+      R[2][1] = cos(p)*sin(r); 
+      R[2][2] = cos(p)*cos(r);
+      
+      for(int i(0); i<3; ++i){
+        this->xyz[i] = lcm_t.xyz[i];
+      }
+    }
+
 
     void rsPoseToSE3(const rs2::pose_frame & pose_frame){
       auto pose_data = pose_frame.get_pose_data();
