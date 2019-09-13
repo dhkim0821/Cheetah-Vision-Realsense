@@ -17,6 +17,7 @@ int CELLS_PER_M = ceil((float) 100 / LOCAL_MAP_SIZE);
 int WORLD_SIZE = 10;
 
 SE3 robot_to_D435(0.28, 0.0, -0.01, 0, 0.49, 0);
+//SE3 T265_to_robot(0.0, 0.0, 0.07, M_PI, 0., -M_PI/2.); // parallel attachment of realsense
 SE3 T265_to_robot(0.0, 0.0, 0.07, M_PI, 0., M_PI);
 SE3 global_to_T265_frame(0.0, 0.0, 0.17, M_PI/2., 0.0, -M_PI/2.);
 
