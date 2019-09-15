@@ -26,35 +26,33 @@ int main(int argc, char * argv[]) try
   D435pipe.start(D435cfg);
 
   LocalizationHandle localizationObject;
-  vision_lcm.subscribe("state_estimator", &LocalizationHandle::handlePose, &localizationObject);
+  vision_lcm.subscribe("global_to_robot", &LocalizationHandle::handlePose, &localizationObject);
   std::thread localization_thread(&handleLCM);
 
-  int iter(0);
-  ++iter;
 
-  if(iter < 2){
-    // World heightmap initialization
-    for(int i(0); i<1000;++i){
-      for(int j(0); j<1000; ++j){
-        world_heightmap.map[i][j] = 0.;
-      }
+  // World heightmap initialization
+  for(int i(0); i<1000;++i){
+    for(int j(0); j<1000; ++j){
+      world_heightmap.map[i][j] = 0.;
     }
-    // Traversability initialization
-    for(int i(0); i<100;++i){
-      for(int j(0); j<100; ++j){
-        traversability.map[i][j] = 0;
-      }
+  }
+  // Traversability initialization
+  for(int i(0); i<100;++i){
+    for(int j(0); j<100; ++j){
+      traversability.map[i][j] = 0;
     }
   }
 
+  int iter(0);
   while (true) { 
+    ++iter;
     auto D435frames = D435pipe.wait_for_frames();
     auto depth = D435frames.get_depth_frame();
 
     points = pc.calculate(depth);
     _ProcessPointCloudData(points);
 
-    if(iter%1000 == 1) printf("point cloud loop is run\n");
+    if(iter%3000 == 1) printf("point cloud loop is run\n");
   }
   return EXIT_SUCCESS;
 }
@@ -71,14 +69,16 @@ catch (const std::exception & e)
 }
 
 void _ProcessPointCloudData(const rs2::points & points){
-
-
   // filter
+  //int erosion_size = 1;
   int erosion_size = 2;
+  //int erosion_size = 4;
   static cv::Mat erosion_element = cv::getStructuringElement(
       cv::MORPH_ELLIPSE, cv::Size( 2*erosion_size + 1, 2*erosion_size+1 ), 
       cv::Point( erosion_size, erosion_size ) );
+  //int dilation_size = 1;
   int dilation_size = 2;
+  //int dilation_size = 4;
   static cv::Mat dilation_element = cv::getStructuringElement(
       cv::MORPH_ELLIPSE, cv::Size( 2*dilation_size + 1, 2*dilation_size+1 ), 
       cv::Point( dilation_size, dilation_size ) );
@@ -123,8 +123,9 @@ void _ProcessPointCloudData(const rs2::points & points){
   extractLocalFromWorldHeightmap(global_to_robot.xyz, &world_heightmap, &local_heightmap); // writes over local heightmap in place
 
   cv::Mat cv_local_heightmap(100, 100, CV_64F, local_heightmap.map);
-  cv::dilate( cv_local_heightmap, cv_local_heightmap, dilation_element );	
   cv::erode( cv_local_heightmap, cv_local_heightmap, erosion_element );
+  cv::dilate( cv_local_heightmap, cv_local_heightmap, dilation_element );	
+  cv_local_heightmap = max(cv_local_heightmap, 0.);
 
   cv::Mat	grad_x, grad_y;
   cv::Sobel(cv_local_heightmap, grad_x, CV_64F, 1,0,3,1,0,cv::BORDER_DEFAULT);
@@ -141,7 +142,11 @@ void _ProcessPointCloudData(const rs2::points & points){
 
   for(int i(0); i<100; ++i){
     for(int j(0); j<100; ++j){
-      local_heightmap.map[i][j] = cv_local_heightmap.at<double>(i,j);
+      //if(cv_local_heightmap.at<double>(i,j)>0){
+        local_heightmap.map[i][j] = cv_local_heightmap.at<double>(i,j);
+      //}else{
+        //local_heightmap.map[i][j] = 0.;
+      //}
       traversability.map[i][j] = traversability_mat.at<double>(i,j);
     }
   }

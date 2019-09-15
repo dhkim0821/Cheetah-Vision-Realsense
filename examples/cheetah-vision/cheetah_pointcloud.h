@@ -20,6 +20,7 @@ int CELLS_PER_M = ceil((float) 100 / LOCAL_MAP_SIZE);
 int WORLD_SIZE = 10;
 
 SE3 robot_to_D435(0.28, 0.0, -0.01, 0, 0.49, 0);
+//SE3 robot_to_D435(0.30, 0.0, -0.01, 0, 0.49, 0);
 SE3 global_to_robot, global_to_D435;
 
 struct worldmap {  double map[WORLDMAP_SIZE][WORLDMAP_SIZE]; };
@@ -75,7 +76,7 @@ class LocalizationHandle
     void handlePose(const lcm::ReceiveBuffer* rbuf, 
         const std::string& chan, 
         const localization_lcmt* msg) {
-      global_to_robot.get_localization_lcmt(*msg);
+      global_to_robot.get_localization_lcmt(msg);
     }
 };
 

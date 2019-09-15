@@ -46,10 +46,10 @@ class SE3{
       }
     }
 
-    void get_localization_lcmt(const localization_lcmt & lcm_t){
-      double r = lcm_t.rpy[0];
-      double p = lcm_t.rpy[1];
-      double yaw = lcm_t.rpy[2];
+    void get_localization_lcmt(const localization_lcmt * lcm_t){
+      double r = lcm_t->rpy[0];
+      double p = lcm_t->rpy[1];
+      double yaw = lcm_t->rpy[2];
 
       R[0][0] = cos(yaw)*cos(p);  
       R[0][1] = cos(yaw)*sin(p)*sin(r) - sin(yaw)*cos(r); 
@@ -64,7 +64,7 @@ class SE3{
       R[2][2] = cos(p)*cos(r);
       
       for(int i(0); i<3; ++i){
-        this->xyz[i] = lcm_t.xyz[i];
+        this->xyz[i] = lcm_t->xyz[i];
       }
     }
 
